@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Where Is It?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #3A2E4F; --panel: #2E2545; --accent: #7C4DDB; --accent2: #E5578A; --bg: #221A36;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: #fff; overflow: hidden;
+    font-family: 'Fredoka', 'Hiragino Maru Gothic ProN', 'Arial Rounded MT Bold', sans-serif;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none; }
+  #app { display: flex; flex-direction: column; height: 100%; }
+
+  /* top bar */
+  #top { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--panel); flex: 0 0 auto; }
+  #title { font-weight: 700; font-size: 26px; margin-right: auto; white-space: nowrap; }
+  .btn { font: inherit; font-weight: 700; font-size: 18px; color: #fff; border: 0; border-radius: 14px;
+    padding: 10px 16px; background: #5A4E72; cursor: pointer; white-space: nowrap; }
+  .btn.place.on { background: var(--accent); box-shadow: 0 0 0 3px #fff inset; }
+  .btn.words.on { background: var(--accent2); }
+  .btn:active { transform: scale(0.96); }
+
+  /* board */
+  #stageWrap { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; min-height: 0; padding: 6px; }
+  #stage { position: relative; aspect-ratio: 16 / 9; height: 100%; max-width: 100%; border-radius: 14px; overflow: hidden;
+    background: #fff; }
+  @supports not (aspect-ratio: 16 / 9) { #stage { width: 100%; padding-top: 56.25%; height: auto; } }
+  #stage > img.scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+  .abs { position: absolute; }
+  .cover { pointer-events: none; }
+  .placed { object-fit: contain; object-position: center bottom; cursor: grab; touch-action: none;
+    filter: drop-shadow(0 2px 0 rgba(58,46,79,.25)); }
+  .marker { pointer-events: none; z-index: 5000; display: flex; align-items: flex-end; justify-content: center; }
+  .marker::after { content: ''; width: 46%; aspect-ratio: 1; margin-bottom: 18%; border-radius: 50%;
+    border: 3px dashed rgba(255,255,255,.95); background: rgba(124,77,219,.28); }
+  .marker.near::after { width: 80%; border-style: solid; border-color: #FFE27A; background: rgba(255,226,122,.4);
+    box-shadow: 0 0 18px #FFE27A; }
+  .word { z-index: 6000; pointer-events: none; transform: translateY(4px); white-space: nowrap;
+    background: #fff; color: var(--ink); font-weight: 700; border-radius: 10px; padding: 2px 8px;
+    font-size: clamp(11px, 1.35vw, 18px); box-shadow: 0 2px 0 rgba(0,0,0,.25); }
+
+  /* tray */
+  #tray { flex: 0 0 auto; display: flex; justify-content: center; gap: min(18px, 1.5vw); padding: 8px 12px 12px; background: var(--panel); }
+  .slot { width: min(96px, 11vw); display: flex; flex-direction: column; align-items: center; gap: 2px; touch-action: none; }
+  .slot img { width: min(76px, 9vw); height: min(76px, 9vw); cursor: grab; touch-action: none; transition: opacity .15s; }
+  .slot.used img { opacity: .18; cursor: default; }
+  .slot span { font-weight: 700; font-size: 20px; }
+  #ghost { position: fixed; width: 92px; height: 92px; pointer-events: none; z-index: 9999; display: none;
+    transform: translate(-50%, -75%) scale(1.08); filter: drop-shadow(0 6px 6px rgba(0,0,0,.35)); }
+
+  /* how to play */
+  #help { position: fixed; inset: 0; background: rgba(20,14,34,.88); z-index: 10000; display: flex; align-items: center; justify-content: center; }
+  #help .card { background: #fff; color: var(--ink); border-radius: 22px; padding: 24px 30px; max-width: 640px; width: 92%; }
+  #help h2 { margin: 0 0 10px; font-size: 32px; }
+  #help ol { margin: 0 0 16px; padding-left: 26px; font-size: 20px; line-height: 1.45; }
+  #help .jp { font-size: 15px; color: #6b5f80; display: block; }
+  #help .btn { background: var(--accent); font-size: 22px; width: 100%; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top">
+    <div id="title">Where is it?</div>
+    <div id="places"></div>
+    <button class="btn words" id="wordsBtn">Show words</button>
+    <button class="btn" id="clearBtn">Clear</button>
+    <button class="btn" id="helpBtn">?</button>
+  </div>
+  <div id="stageWrap"><div id="stage"></div></div>
+  <div id="tray"></div>
+</div>
+<img id="ghost" alt="">
+
+<div id="help">
+  <div class="card">
+    <h2>How to play</h2>
+    <ol>
+      <li>Both partners choose the <b>same place</b>.<span class="jp">ペアで同じ場所を選ぼう。</span></li>
+      <li><b>A</b> hides the things. Don't let <b>B</b> see!<span class="jp">Aは隠す。Bに見せないで！</span></li>
+      <li><b>B</b> asks: "Where is the cat?"<br><b>A</b> answers: "It's under the table."<span class="jp">Bが質問して、Aが答える。Bは自分の画面に置く。</span></li>
+      <li>Compare your screens! Then swap.<span class="jp">画面を比べよう！役を交代。</span></li>
+    </ol>
+    <button class="btn" id="startBtn">OK!</button>
+  </div>
+</div>
+
+<script>
+const BOARDS = [{"name":"Park","covers":{"bridge":[134.0,696.0],"tree":[566.0,464.0],"treefront":[624.0,364.0],"house":[739.0,414.0],"bike":[1283.0,620.0],"pondfront":[1190.0,820.0]},"spots":[{"phrase":"on the fence","rect":[1080.0,538.0,80.0,96.0]},{"phrase":"behind the bicycle","rect":[1293.0,636.0,80.0,96.0],"cover":"bike"},{"phrase":"under the bridge","rect":[250.0,784.0,80.0,96.0],"cover":"bridge","also":"in the water"},{"phrase":"in the tree","rect":[650.0,320.0,80.0,96.0],"cover":"treefront"},{"phrase":"in front of the house","rect":[790.0,670.0,100.0,120.0]},{"phrase":"on the cloud","rect":[1150.0,32.0,90.0,108.0]},{"phrase":"behind the tree","rect":[515.0,657.0,90.0,108.0],"cover":"tree"},{"phrase":"by the rock","rect":[168.0,554.0,70.0,84.0]},{"phrase":"in the water","rect":[1330.0,742.0,90.0,108.0],"cover":"pondfront"},{"phrase":"on the rock","rect":[45.0,494.0,80.0,96.0]},{"phrase":"behind the house","rect":[950.0,440.0,90.0,108.0],"cover":"house"},{"phrase":"on the house","rect":[837.0,336.0,80.0,96.0]}],"id":"park"},{"name":"Classroom","covers":{"plant":[1440.0,412.0],"curtain":[1150.0,82.0],"box":[692.0,700.0],"bag":[1272.0,726.0]},"spots":[{"phrase":"under the desk","rect":[370.0,750.0,80.0,96.0]},{"phrase":"on the desk","rect":[1060.0,584.0,80.0,96.0]},{"phrase":"on the chair","rect":[610.0,642.0,80.0,96.0]},{"phrase":"under the chair","rect":[615.0,774.0,70.0,84.0]},{"phrase":"in the bag","rect":[1300.0,700.0,80.0,96.0],"cover":"bag"},{"phrase":"in the box","rect":[778.0,712.0,64.0,77.0],"cover":"box"},{"phrase":"by the door","rect":[252.0,532.0,70.0,84.0]},{"phrase":"in front of the box","rect":[772.0,798.0,84.0,100.0]},{"phrase":"on the teacher's desk","rect":[700.0,417.0,64.0,77.0]},{"phrase":"under the clock","rect":[1005.0,208.0,70.0,84.0]},{"phrase":"behind the curtain","rect":[1110.0,470.0,80.0,96.0],"cover":"curtain"},{"phrase":"behind the plant","rect":[1490.0,400.0,80.0,96.0],"cover":"plant"}],"id":"classroom"},{"name":"Town","covers":{"bus":[140.0,576.0],"car":[1004.0,606.0],"bench":[870.0,482.0],"tree":[1338.0,566.0]},"spots":[{"phrase":"at the station","rect":[195.0,432.0,70.0,84.0],"also":"in front of the station"},{"phrase":"at the shop","rect":[665.0,432.0,70.0,84.0],"also":"in front of the shop"},{"phrase":"at the school","rect":[1285.0,432.0,70.0,84.0],"also":"in front of the school"},{"phrase":"in the bus","rect":[258.0,622.0,64.0,77.0],"cover":"bus"},{"phrase":"on the bus","rect":[330.0,516.0,70.0,84.0]},{"phrase":"in front of the bus","rect":[585.0,676.0,70.0,84.0]},{"phrase":"in the car","rect":[1086.0,620.0,56.0,67.0],"cover":"car"},{"phrase":"under the car","rect":[1118.0,700.0,66.0,79.0],"cover":"car"},{"phrase":"on the bench","rect":[925.0,458.0,70.0,84.0],"z":2000},{"phrase":"under the bench","rect":[932.0,546.0,56.0,67.0],"cover":"bench"},{"phrase":"behind the tree","rect":[1462.0,770.0,70.0,84.0],"cover":"tree"},{"phrase":"by the bicycle","rect":[822.0,800.0,70.0,84.0]}],"id":"town"},{"name":"Living room","covers":{"curtain":[216.0,92.0],"sofa":[1156.0,464.0],"basket":[108.0,766.0],"box":[526.0,710.0]},"spots":[{"phrase":"on the sofa","rect":[1230.0,456.0,80.0,96.0],"z":2000},{"phrase":"behind the sofa","rect":[1480.0,400.0,80.0,96.0],"cover":"sofa"},{"phrase":"on the table","rect":[1330.0,624.0,80.0,96.0]},{"phrase":"under the table","rect":[1335.0,748.0,70.0,84.0]},{"phrase":"on the TV","rect":[955.0,264.0,80.0,96.0]},{"phrase":"in front of the TV","rect":[955.0,590.0,80.0,96.0]},{"phrase":"on the piano","rect":[660.0,262.0,80.0,96.0]},{"phrase":"under the piano","rect":[665.0,520.0,70.0,84.0]},{"phrase":"by the lamp","rect":[412.0,530.0,70.0,84.0]},{"phrase":"behind the curtain","rect":[186.0,500.0,80.0,96.0],"cover":"curtain"},{"phrase":"in the basket","rect":[170.0,716.0,80.0,96.0],"cover":"basket"},{"phrase":"in the box","rect":[612.0,704.0,66.0,79.0],"cover":"box"}],"id":"livingroom"}];
+const ITEMS = [
+  { id: 'cat', word: 'cat' }, { id: 'dog', word: 'dog' }, { id: 'ball', word: 'ball' }, { id: 'cap', word: 'cap' },
+  { id: 'book', word: 'book' }, { id: 'apple', word: 'apple' }, { id: 'bird', word: 'bird' }, { id: 'rabbit', word: 'rabbit' },
+];
+const W = 1600, H = 900;           // board coordinate space (same as the classroom game)
+const SNAP = 140;                  // how close (board px) a drop must be to a spot
+const pct = (v, total) => (v / total * 100) + '%';
+const ITEM_SCALE = 1.4;            // items are drawn a bit bigger than the hiding spot
+function itemRect(r) {             // grow around the bottom-centre so items still "sit" on things
+  const w = r[2] * ITEM_SCALE, h = r[3] * ITEM_SCALE;
+  return [r[0] + r[2] / 2 - w / 2, r[1] + r[3] - h, w, h];
+}
+
+const stage = document.getElementById('stage');
+const tray = document.getElementById('tray');
+const ghost = document.getElementById('ghost');
+let board = null;
+let placed = {};      // itemId -> spot index
+let els = {};         // itemId -> placed <img>
+let markers = [];
+let showWords = false;
+
+// ---------- build UI ----------
+const places = document.getElementById('places');
+BOARDS.forEach((b, i) => {
+  const btn = document.createElement('button');
+  btn.className = 'btn place'; btn.textContent = b.name;
+  btn.onclick = () => loadBoard(i);
+  places.appendChild(btn);
+});
+ITEMS.forEach(it => {
+  const slot = document.createElement('div');
+  slot.className = 'slot'; slot.id = 'slot-' + it.id;
+  slot.innerHTML = `<img src="assets/items/${it.id}.svg" alt="${it.word}" draggable="false"><span>${it.word}</span>`;
+  slot.querySelector('img').addEventListener('pointerdown', e => { if (!(it.id in placed)) startDrag(e, it.id); });
+  tray.appendChild(slot);
+});
+document.getElementById('clearBtn').onclick = () => { for (const id in placed) removeItem(id); };
+document.getElementById('wordsBtn').onclick = e => { showWords = !showWords; e.currentTarget.classList.toggle('on', showWords); renderWords(); };
+document.getElementById('helpBtn').onclick = () => document.getElementById('help').classList.remove('hidden');
+document.getElementById('startBtn').onclick = () => document.getElementById('help').classList.add('hidden');
+document.addEventListener('contextmenu', e => e.preventDefault());
+
+function loadBoard(i) {
+  board = BOARDS[i];
+  [...places.children].forEach((b, k) => b.classList.toggle('on', k === i));
+  stage.innerHTML = '';
+  placed = {}; els = {}; markers = [];
+  ITEMS.forEach(it => document.getElementById('slot-' + it.id).classList.remove('used'));
+  const img = document.createElement('img');
+  img.className = 'scene'; img.src = `assets/${board.id}/scene.jpg`; img.alt = board.name;
+  stage.appendChild(img);
+  // covers: pieces of the picture drawn over items so "behind / in / under" look right
+  const used = new Set(board.spots.filter(s => s.cover).map(s => s.cover));
+  used.forEach(name => {
+    const c = document.createElement('img');
+    c.className = 'abs cover'; c.src = `assets/${board.id}/cover_${name}.png`;
+    const [x, y] = board.covers[name];
+    c.style.left = pct(x, W); c.style.top = pct(y, H);
+    c.onload = () => {   // cover images are drawn at 2x
+      const w = c.naturalWidth / 2, h = c.naturalHeight / 2;
+      c.style.width = pct(w, W); c.style.height = pct(h, H);
+      c.style.zIndex = Math.round(y + h);
+    };
+    stage.appendChild(c);
+  });
+  // spot markers (only visible while dragging)
+  board.spots.forEach((s, k) => {
+    const m = document.createElement('div');
+    m.className = 'abs marker hidden';
+    setRect(m, s.rect);
+    stage.appendChild(m); markers.push(m);
+  });
+  renderWords();
+}
+
+function setRect(el, r) {
+  el.style.left = pct(r[0], W); el.style.top = pct(r[1], H);
+  el.style.width = pct(r[2], W); el.style.height = pct(r[3], H);
+}
+
+// ---------- dragging ----------
+let drag = null;
+function startDrag(e, id) {
+  e.preventDefault();
+  drag = { id, near: -1, pointer: e.pointerId };
+  ghost.src = `assets/items/${id}.svg`; ghost.style.display = 'block';
+  moveGhost(e);
+  if (els[id]) els[id].style.opacity = '0.25';
+  markers.forEach((m, k) => m.classList.toggle('hidden', spotTaken(k, id)));
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp);
+}
+function moveGhost(e) { ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px'; }
+function toBoard(e) {
+  const r = stage.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H, inside:
+    e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom };
+}
+function spotTaken(k, exceptId) {
+  for (const id in placed) if (placed[id] === k && id !== exceptId) return true;
+  return false;
+}
+function nearestSpot(p) {
+  let best = -1, bd = SNAP;
+  board.spots.forEach((s, k) => {
+    if (spotTaken(k, drag.id)) return;
+    const cx = s.rect[0] + s.rect[2] / 2, cy = s.rect[1] + s.rect[3] / 2;
+    const d = Math.hypot(p.x - cx, p.y - cy);
+    if (d < bd) { bd = d; best = k; }
+  });
+  return best;
+}
+function onMove(e) {
+  if (!drag || e.pointerId !== drag.pointer) return;
+  moveGhost(e);
+  const p = toBoard(e);
+  const k = p.inside ? nearestSpot(p) : -1;
+  if (k !== drag.near) {
+    if (drag.near >= 0) markers[drag.near].classList.remove('near');
+    if (k >= 0) markers[k].classList.add('near');
+    drag.near = k;
+  }
+}
+function onUp(e) {
+  if (!drag || e.pointerId !== drag.pointer) return;
+  window.removeEventListener('pointermove', onMove);
+  window.removeEventListener('pointerup', onUp);
+  window.removeEventListener('pointercancel', onUp);
+  ghost.style.display = 'none';
+  markers.forEach(m => { m.classList.add('hidden'); m.classList.remove('near'); });
+  const id = drag.id, k = drag.near, p = toBoard(e);
+  if (els[id]) els[id].style.opacity = '';
+  if (k >= 0) placeItem(id, k);
+  else if (!p.inside && id in placed) removeItem(id);   // dragged off the board: back to the tray
+  drag = null;
+}
+
+function placeItem(id, k) {
+  const s = board.spots[k];
+  let el = els[id];
+  if (!el) {
+    el = document.createElement('img');
+    el.className = 'abs placed'; el.src = `assets/items/${id}.svg`; el.alt = id; el.draggable = false;
+    el.addEventListener('pointerdown', ev => startDrag(ev, id));
+    stage.appendChild(el); els[id] = el;
+  }
+  setRect(el, itemRect(s.rect));
+  el.style.zIndex = s.z || Math.round(s.rect[1] + s.rect[3]);   // lower on screen = in front
+  placed[id] = k;
+  document.getElementById('slot-' + id).classList.add('used');
+  el.animate([{ transform: 'scale(.6)' }, { transform: 'scale(1.12)' }, { transform: 'scale(1)' }], { duration: 220, easing: 'ease-out' });
+  renderWords();
+}
+function removeItem(id) {
+  if (els[id]) els[id].remove();
+  delete els[id]; delete placed[id];
+  document.getElementById('slot-' + id).classList.remove('used');
+  renderWords();
+}
+
+// ---------- "Show words": label each placed item with its phrase ----------
+function renderWords() {
+  stage.querySelectorAll('.word').forEach(w => w.remove());
+  if (!showWords || !board) return;
+  for (const id in placed) {
+    const s = board.spots[placed[id]];
+    const w = document.createElement('div');
+    w.className = 'abs word';
+    w.textContent = `The ${id} is ${s.phrase}.`;
+    const r = s.rect;
+    w.style.top = pct(Math.min(r[1] + r[3], H - 40), H);
+    stage.appendChild(w);
+    // centre under the item, but keep the label inside the picture
+    const sw = stage.clientWidth, lw = w.offsetWidth;
+    const cx = (r[0] + r[2] / 2) / W * sw;
+    w.style.left = Math.max(6, Math.min(sw - lw - 6, cx - lw / 2)) + 'px';
+  }
+}
+
+loadBoard(0);
+</script>
+</body>
+</html>
