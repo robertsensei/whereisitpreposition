@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" id="vp" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Where Is It?</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -29,8 +29,13 @@
   /* board */
   #stageWrap { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; min-height: 0; padding: 6px; }
   #stage { position: relative; border-radius: 14px; overflow: hidden; background: #fff; flex: 0 0 auto; }
+  #view { position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; }
+  .zoomctl { position: absolute; right: 8px; top: 8px; z-index: 7000; display: flex; flex-direction: column; gap: 6px; }
+  .zoomctl button { width: 46px; height: 46px; border: 0; border-radius: 12px; font: inherit; font-weight: 700;
+    font-size: 26px; line-height: 1; color: #fff; background: rgba(46,37,69,.75); cursor: pointer; }
+  .zoomctl button:active { transform: scale(.94); }
   #middle { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
-  #stage > img.scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+  #view > img.scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
   .abs { position: absolute; }
   .cover { pointer-events: none; }
   .placed { object-fit: contain; object-position: center bottom; cursor: grab; touch-action: none;
@@ -73,12 +78,15 @@
     .slot { width: 64px; }
     .slot img { width: 44px; height: 44px; }
     .slot span { font-size: 13px; }
+    .zoomctl button { width: 36px; height: 36px; font-size: 20px; }
   }
   /* narrow screens: keep the top bar on one row where possible */
   @media (max-width: 900px) {
     #title { font-size: 20px; }
     .btn { font-size: 15px; padding: 8px 11px; }
   }
+  #unzoom { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 30000;
+    font-size: 22px; padding: 14px 26px; background: #E5578A; box-shadow: 0 4px 0 rgba(0,0,0,.3); display: none; }
   #rotate { position: fixed; inset: 0; z-index: 20000; background: #2E2545; display: none;
     flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 12px; padding: 20px; }
   #rotate .phone { font-size: 80px; animation: turn 1.6s ease-in-out infinite; }
@@ -103,6 +111,7 @@
   </div>
 </div>
 <img id="ghost" alt="">
+<button class="btn" id="unzoom">🔍 Zoom out / 元に戻す</button>
 <div id="rotate"><div class="phone">📱</div><p>Please turn your screen sideways</p><p class="jp">横向きにしてね</p></div>
 
 <div id="help">
@@ -134,6 +143,13 @@ function itemRect(r) {             // grow around the bottom-centre so items sti
 }
 
 const stage = document.getElementById('stage');
+const view = document.createElement('div');      // the zoomable picture layer
+view.id = 'view';
+stage.appendChild(view);
+const zoomCtl = document.createElement('div');
+zoomCtl.className = 'zoomctl';
+zoomCtl.innerHTML = '<button data-z="in">＋</button><button data-z="out">－</button><button data-z="reset">⟲</button>';
+stage.appendChild(zoomCtl);
 const tray = document.getElementById('tray');
 const ghost = document.getElementById('ghost');
 let board = null;
@@ -171,6 +187,7 @@ function fitStage() {
   const ah = wrap.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
   const w = Math.max(50, Math.min(aw, ah * 16 / 9));
   stage.style.width = w + 'px'; stage.style.height = (w * 9 / 16) + 'px';
+  if (typeof resetZoom2 === 'function') resetZoom2();
   renderWords();
 }
 window.addEventListener('resize', fitStage);
@@ -179,12 +196,12 @@ window.addEventListener('orientationchange', () => setTimeout(fitStage, 200));
 function loadBoard(i) {
   board = BOARDS[i];
   [...places.children].forEach((b, k) => b.classList.toggle('on', k === i));
-  stage.innerHTML = '';
+  view.innerHTML = ''; resetZoom2();
   placed = {}; els = {}; markers = [];
   ITEMS.forEach(it => document.getElementById('slot-' + it.id).classList.remove('used'));
   const img = document.createElement('img');
   img.className = 'scene'; img.src = `assets/${board.id}/scene.jpg`; img.alt = board.name;
-  stage.appendChild(img);
+  view.appendChild(img);
   // covers: pieces of the picture drawn over items so "behind / in / under" look right
   const used = new Set(board.spots.filter(s => s.cover).map(s => s.cover));
   used.forEach(name => {
@@ -197,14 +214,14 @@ function loadBoard(i) {
       c.style.width = pct(w, W); c.style.height = pct(h, H);
       c.style.zIndex = Math.round(y + h);
     };
-    stage.appendChild(c);
+    view.appendChild(c);
   });
   // spot markers (only visible while dragging)
   board.spots.forEach((s, k) => {
     const m = document.createElement('div');
     m.className = 'abs marker hidden';
     setRect(m, s.rect);
-    stage.appendChild(m); markers.push(m);
+    view.appendChild(m); markers.push(m);
   });
   renderWords();
 }
@@ -218,6 +235,7 @@ function setRect(el, r) {
 let drag = null;
 function startDrag(e, id) {
   e.preventDefault();
+  if (touches.size > 0) return;        // a finger is already zooming/panning the picture
   drag = { id, near: -1, pointer: e.pointerId };
   ghost.src = `assets/items/${id}.svg`; ghost.style.display = 'block';
   moveGhost(e);
@@ -229,8 +247,8 @@ function startDrag(e, id) {
 }
 function moveGhost(e) { ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px'; }
 function toBoard(e) {
-  const r = stage.getBoundingClientRect();
-  return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H, inside:
+  const v = view.getBoundingClientRect(), r = stage.getBoundingClientRect();
+  return { x: (e.clientX - v.left) / v.width * W, y: (e.clientY - v.top) / v.height * H, inside:
     e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom };
 }
 function spotTaken(k, exceptId) {
@@ -279,7 +297,7 @@ function placeItem(id, k) {
     el = document.createElement('img');
     el.className = 'abs placed'; el.src = `assets/items/${id}.svg`; el.alt = id; el.draggable = false;
     el.addEventListener('pointerdown', ev => startDrag(ev, id));
-    stage.appendChild(el); els[id] = el;
+    view.appendChild(el); els[id] = el;
   }
   setRect(el, itemRect(s.rect));
   el.style.zIndex = s.z || Math.round(s.rect[1] + s.rect[3]);   // lower on screen = in front
@@ -297,7 +315,7 @@ function removeItem(id) {
 
 // ---------- "Show words": label each placed item with its phrase ----------
 function renderWords() {
-  stage.querySelectorAll('.word').forEach(w => w.remove());
+  view.querySelectorAll('.word').forEach(w => w.remove());
   if (!showWords || !board) return;
   for (const id in placed) {
     const s = board.spots[placed[id]];
@@ -306,12 +324,124 @@ function renderWords() {
     w.textContent = `The ${id} is ${s.phrase}.`;
     const r = s.rect;
     w.style.top = pct(Math.min(r[1] + r[3], H - 40), H);
-    stage.appendChild(w);
+    view.appendChild(w);
     // centre under the item, but keep the label inside the picture
-    const sw = stage.clientWidth, lw = w.offsetWidth;
+    const sw = view.clientWidth, lw = w.offsetWidth;
     const cx = (r[0] + r[2] / 2) / W * sw;
     w.style.left = Math.max(6, Math.min(sw - lw - 6, cx - lw / 2)) + 'px';
   }
+}
+
+// ---------- the game's own zoom (only the picture zooms) ----------
+let zs = 1, ztx = 0, zty = 0;          // scale and offset of the picture
+const ZMAX = 4;
+function applyZoom() {
+  const sw = stage.clientWidth, sh = stage.clientHeight;
+  zs = Math.min(ZMAX, Math.max(1, zs));
+  ztx = Math.min(0, Math.max(sw - sw * zs, ztx));
+  zty = Math.min(0, Math.max(sh - sh * zs, zty));
+  view.style.transform = `translate(${ztx}px, ${zty}px) scale(${zs})`;
+}
+function zoomAt(cx, cy, ns) {           // keep the point under (cx, cy) in place
+  const r = stage.getBoundingClientRect();
+  const px = (cx - r.left - ztx) / zs, py = (cy - r.top - zty) / zs;
+  zs = Math.min(ZMAX, Math.max(1, ns));
+  ztx = cx - r.left - px * zs; zty = cy - r.top - py * zs;
+  applyZoom();
+}
+function resetZoom2(animate) {
+  if (animate) { view.style.transition = 'transform .25s ease'; setTimeout(() => view.style.transition = '', 260); }
+  zs = 1; ztx = 0; zty = 0; applyZoom();
+}
+zoomCtl.addEventListener('pointerdown', e => e.stopPropagation());
+zoomCtl.addEventListener('pointerup', e => {
+  const z = e.target.dataset && e.target.dataset.z; if (!z) return;
+  const r = stage.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  view.style.transition = 'transform .2s ease'; setTimeout(() => view.style.transition = '', 210);
+  if (z === 'in') zoomAt(cx, cy, zs * 1.5);
+  else if (z === 'out') zoomAt(cx, cy, zs / 1.5);
+  else resetZoom2();
+});
+// touches on the picture (not on an item): 1 finger pans, 2 fingers pinch, double-tap toggles zoom
+const touches = new Map();
+let pinch = null, pan = null, lastTap = { t: 0, x: 0, y: 0 };
+stage.addEventListener('pointerdown', e => {
+  if (drag) return;                    // an item is being dragged
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: Date.now() });
+  if (touches.size === 2) {
+    const [a, b] = [...touches.values()];
+    pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, s0: zs, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+    pan = null;
+  } else if (touches.size === 1) {
+    pan = { x: e.clientX, y: e.clientY };
+  }
+});
+window.addEventListener('pointermove', e => {
+  const t = touches.get(e.pointerId); if (!t) return;
+  t.x = e.clientX; t.y = e.clientY;
+  if (pinch && touches.size >= 2) {
+    const [a, b] = [...touches.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    ztx += mx - pinch.mx; zty += my - pinch.my;          // two-finger pan
+    pinch.mx = mx; pinch.my = my;
+    zoomAt(mx, my, pinch.s0 * d / pinch.d0);
+  } else if (pan && zs > 1) {
+    ztx += e.clientX - pan.x; zty += e.clientY - pan.y;
+    pan.x = e.clientX; pan.y = e.clientY;
+    applyZoom();
+  }
+});
+function endTouch(e) {
+  const t = touches.get(e.pointerId); if (!t) return;
+  touches.delete(e.pointerId);
+  if (touches.size < 2) pinch = null;
+  if (touches.size === 0) pan = null;
+  const quick = Date.now() - t.t0 < 300 && Math.hypot(t.x - t.x0, t.y - t.y0) < 12;
+  if (quick && !pinch) {
+    const now = Date.now();
+    if (now - lastTap.t < 350 && Math.hypot(t.x - lastTap.x, t.y - lastTap.y) < 40) {
+      view.style.transition = 'transform .25s ease'; setTimeout(() => view.style.transition = '', 260);
+      if (zs > 1.05) resetZoom2(); else zoomAt(t.x, t.y, 2.2);
+      lastTap.t = 0;
+    } else lastTap = { t: now, x: t.x, y: t.y };
+  }
+}
+window.addEventListener('pointerup', endTouch);
+window.addEventListener('pointercancel', endTouch);
+stage.addEventListener('wheel', e => {   // mouse wheel zoom on a PC
+  e.preventDefault();
+  zoomAt(e.clientX, e.clientY, zs * Math.exp(-e.deltaY * 0.0015));
+}, { passive: false });
+
+// ---------- stop iPad pinch-zoom / double-tap zoom (Safari ignores user-scalable=no) ----------
+['gesturestart', 'gesturechange', 'gestureend'].forEach(t =>
+  document.addEventListener(t, e => e.preventDefault(), { passive: false }));
+document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+let lastTouchEnd = 0;
+document.addEventListener('touchend', e => {
+  const now = Date.now();
+  if (now - lastTouchEnd < 350) e.preventDefault();   // block double-tap zoom
+  lastTouchEnd = now;
+}, { passive: false });
+document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
+
+// safety net: if the page still gets zoomed, show a button that snaps it back
+const vp = document.getElementById('vp');
+const unzoomBtn = document.getElementById('unzoom');
+function resetZoom() {
+  const c = vp.getAttribute('content');
+  vp.setAttribute('content', 'width=device-width, initial-scale=1.0001, maximum-scale=1.0001, user-scalable=no');
+  setTimeout(() => { vp.setAttribute('content', c); window.scrollTo(0, 0); checkZoom(); fitStage(); }, 60);
+}
+function checkZoom() {
+  const scale = window.visualViewport ? window.visualViewport.scale : 1;
+  unzoomBtn.style.display = scale > 1.05 ? 'block' : 'none';
+}
+unzoomBtn.addEventListener('click', resetZoom);
+unzoomBtn.addEventListener('touchend', e => { e.preventDefault(); resetZoom(); });
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', checkZoom);
+  window.visualViewport.addEventListener('scroll', checkZoom);
 }
 
 loadBoard(0);
